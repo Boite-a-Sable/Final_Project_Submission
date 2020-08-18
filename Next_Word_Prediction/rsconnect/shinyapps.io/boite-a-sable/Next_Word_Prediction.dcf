@@ -1,0 +1,12 @@
+name: Next_Word_Prediction
+title: Next_Word_Prediction
+username:
+account: boite-a-sable
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2682822
+bundleId: 3531712
+url: https://boite-a-sable.shinyapps.io/Next_Word_Prediction/
+when: 1597791368.93078
+asMultiple: FALSE
+asStatic: FALSE

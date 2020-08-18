@@ -1,0 +1,196 @@
+---
+title: 'Data Science Capstone: Week 2 Milestone Report'
+author: "Cesar A"
+date: "17/08/2020"
+---
+
+## Introduction
+the milestone report for week 2 in the Exploratory Analysis section is from the Coursera Data Science Capstone project. The main goal of the capstone project is the application based on a predictive text model using explain the Explortory Data Analysis and building an algorithm. Briefly, the application works with a worth ant then it will try to predict the next word. The model will be trained using a collection of English text (corpus) that is compiled from 3 sources - news, blogs, and tweets. The main parts are loading and cleaning the data as well as use NLM (Natural Language Processing) applications in R s a first step toward building a predictive model.
+
+##Load packages and data
+###Step 1: load the required libraries and set up the work environment.
+```{r}
+library(rJava)
+library(RWeka)
+library(RWekajars)
+library(knitr)
+library(dplyr)
+library(tm)
+library(ggplot2)
+library(tm)
+library(kableExtra)
+library(data.table)
+library(SnowballC)
+library(stringi)
+library(NLP)
+library(RColorBrewer)
+library(wordcloud)
+library(wordcloud2)
+library(ngram)
+library(slam)
+library(htmlTable)
+library(xtable)
+```
+
+###Step 2: Loading the required files and set up the work environment.
+Data have already been downloaded and unzipped from this link Capstone Dataset. We will work only on english data and we will use three specific text datasets each of them containing information about blogs, news and twitter. As we have to clean the datasets from the profane words, we will use a profanity list suggested by a classmate in the forum of the Course (week 2). You can find this dataset at at this link Profanity list.
+```{r}
+#workingDir <- getwd()
+#dataDir <- c("en_US")
+#profanityDir <- c("profanity")
+#list.files(file.path(workingDir,dataDir))
+
+blogs <- readLines("C:/Users/cesar/OneDrive/Documentos/0JohnsHopkins/10-Data Science Capstone/Week1/final/en_US/en_US.blogs.txt", warn = FALSE, encoding = "UTF-8", skipNul = TRUE)
+news <- readLines("C:/Users/cesar/OneDrive/Documentos/0JohnsHopkins/10-Data Science Capstone/Week1/final/en_US/en_US.news.txt", warn = FALSE, encoding = "UTF-8", skipNul = TRUE)
+twitter <- readLines("C:/Users/cesar/OneDrive/Documentos/0JohnsHopkins/10-Data Science Capstone/Week1/final/en_US/en_US.twitter.txt", warn = FALSE, encoding = "UTF-8", skipNul = TRUE)
+```
+
+##Overview
+###Step 3: statistics
+
+To get a sense of what the data looks like, I summarized the main information from each of the 3 datasets (Blog, News and Twitter). I calculate the size of each file in MB,number of lines and words in each file,average word count per line in each file, max count of char per line in each file and others details.
+
+```{r}
+Overview <- data.frame(
+  FileName=c("blogs","news","twitter"),
+  "MaxCharacters" = sapply(list(blogs, news, twitter), function(x){max(unlist(lapply(x, function(y) nchar(y))))}),
+  "File.Size" = sapply(list(blogs, news, twitter), function(x){format(object.size(x),"MB")}),
+  FileSizeinMB=c(file.info("final/en_US/en_US.blogs.txt")$size/1024^2,
+                 file.info("final/en_US/en_US.news.txt")$size/1024^2,
+                 file.info("final/en_US/en_US.twitter.txt")$size/1024^2),
+  t(rbind(sapply(list(blogs,news,twitter),stri_stats_general),
+          WordCount=sapply(list(blogs,news,twitter),stri_stats_latex)[4,])
+    )
+)
+kable(Overview,caption = "the main datasets")
+```
+
+##Overview of the sample data
+###Step 4: statistics to compare the all datasets
+
+To summarize the all info until now, I seleted an small subset of each data and compared with the main files.
+
+```{r}
+Blogs_subset <- sample(blogs, length(blogs) * 0.002)
+News_subset <- sample(news, length(news) * 0.002)
+twitter_subset <- sample(twitter, length(twitter) * 0.002)
+
+
+subset_blog_news_twitter<-c(sample(blogs, length(blogs) * 0.002),
+             sample(news, length(news) * 0.002),
+             sample(twitter, length(twitter) * 0.002))
+
+Overview.after.subset <- data.frame('File' = c("blogs","news","twitter","Blogs_subset","News_subset","twitter_subset","subset_blog_news_twitter"),
+                      "File Size" = sapply(list(blogs,news,twitter,Blogs_subset,News_subset,twitter_subset,subset_blog_news_twitter), function(x){format(object.size(x),"MB")}),
+                      'Nentries' = sapply(list(blogs,news,twitter,Blogs_subset,News_subset,twitter_subset,subset_blog_news_twitter), function(x){length(x)}),
+                      'TotalCharacters' = sapply(list(blogs,news,twitter,Blogs_subset,News_subset,twitter_subset,subset_blog_news_twitter), function(x){sum(nchar(x))}),
+                      'MaxCharacters' = sapply(list(blogs,news,twitter,Blogs_subset,News_subset,twitter_subset,subset_blog_news_twitter), function(x){max(unlist(lapply(x, function(y) nchar(y))))})
+)
+kable(Overview.after.subset,caption = "7 datasets")
+```
+
+##Corpus process
+###Step 5: first step to clean the data
+
+After reducing the size of each data set that were loaded sampled data is used to create a corpus, and following clean up steps are performed. I will be made into the corpus to:
+
+Convert all words to lowercase Eliminate punctuation Eliminate numbers Strip whitespace Eliminate banned words Stemming Using Porter’s Stemming Algorithm Create Plain Text Format
+
+```{r}
+Blogs_subset <- iconv(Blogs_subset, "UTF-8", "ASCII", sub="")
+News_subset <- iconv(News_subset, "UTF-8", "ASCII", sub="")
+twitter_subset <- iconv(twitter_subset, "UTF-8", "ASCII", sub="")
+Data_subset <- c(Blogs_subset,News_subset,twitter_subset)
+
+
+
+building.corpus <- function (x = Data_subset) {
+  corpus <- VCorpus(VectorSource(Data_subset))
+  corpus <- tm_map(corpus, tolower)
+  corpus <- tm_map(corpus, removePunctuation)
+  corpus <- tm_map(corpus, removeNumbers)
+  corpus <- tm_map(corpus, stripWhitespace)
+  corpus <- tm_map(corpus, PlainTextDocument)
+}
+corpues <- building.corpus(Data_subset)
+```
+
+##Tokenize
+###Step 6: breaking a stream of text up into words or short phrases
+
+I use the tm package to construct functions that tokenize the sample and construct matrices of uniqrams, bigrams, and trigrams. for that, we have a clean dataset we need to convert it to a format that is most useful for Natural Language Processing (NLP).
+
+```{r}
+uni_tokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 1, max = 1))
+bi_tokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+tri_tokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+
+corpus.uni.matrix <- TermDocumentMatrix(corpues, control = list(tokenize = uni_tokenizer))
+corpus.bi.matrix<- TermDocumentMatrix(corpues, control = list(tokenize = bi_tokenizer))
+corpus.tri.matrix <- TermDocumentMatrix(corpues, control = list(tokenize = tri_tokenizer))
+
+corpus.uni <- findFreqTerms(corpus.uni.matrix,lowfreq = 10)
+corpus.bi <- findFreqTerms(corpus.bi.matrix,lowfreq=10)
+corpus.tri <- findFreqTerms(corpus.tri.matrix,lowfreq=10)
+
+corpus.uni.f <- rowSums(as.matrix(corpus.uni.matrix[corpus.uni,]))
+corpus.uni.f <- data.frame(word=names(corpus.uni.f), frequency=corpus.uni.f)
+corpus.bi.f <- rowSums(as.matrix(corpus.bi.matrix[corpus.bi,]))
+corpus.bi.f <- data.frame(word=names(corpus.bi.f), frequency=corpus.bi.f)
+corpus.tri.f <- rowSums(as.matrix(corpus.tri.matrix[corpus.tri,]))
+corpus.tri.f <- data.frame(word=names(corpus.tri.f), frequency=corpus.tri.f)
+
+kable(head(corpus.uni.f),caption = "Only one word")
+```
+
+```{r}
+kable(head(corpus.bi.f),caption = "Two words")
+```
+
+```{r}
+kable(head(corpus.tri.f),caption = "Three words")
+```
+
+##Calculate Frequencies of N-Grams
+###Step 7: frequency of words or short phrases
+
+In this section, I will find the most frequently occurring words in the data. Here we list the most common unigrams, bigrams, and trigrams. The N-gram representation of a text lists all N-tuples of words that appear.
+
+```{r}
+plot.n.grams <- function(data, title, num) {
+  df2 <- data[order(-data$frequency),][1:num,] 
+  ggplot(df2, aes(x = seq(1:num), y = frequency)) +
+    geom_bar(stat = "identity", fill = "darkgreen", colour = "black", width = 1.1) +
+    coord_cartesian(xlim = c(0, num+1)) +
+    labs(title = title) +
+    xlab("Words") +
+    ylab("Count") +
+    scale_x_discrete(breaks = seq(1, num, by = 1), labels = df2$word[1:num]) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+}
+
+ U<-plot.n.grams(corpus.uni.f,"Unigrams",20)
+ B<-plot.n.grams(corpus.bi.f,"Bigrams",20)
+ Tr<-plot.n.grams(corpus.tri.f,"Trigrams",20)
+gridExtra::grid.arrange(U, B, Tr, ncol = 3)
+```
+
+##Wordcloud
+###Step 8: Alternative graph to see quicly the main word.
+
+I made a wordcloud. As an alternative of the last plots, and to give a quick impression of the most common words, this graph shows the most common words of the corpus.
+
+```{r}
+corpus.cloud<-list(corpus.tri.f,corpus.bi.f,corpus.uni.f)
+par(mfrow=c(1, 3))
+for (i in 1:3) {
+  wordcloud(corpus.cloud[[i]]$word, corpus.cloud[[i]]$frequency, scale = c(3,1), max.words=100, random.order=FALSE, rot.per=0, fixed.asp = TRUE, use.r.layout = FALSE, colors=brewer.pal(8, "Dark2"))
+}
+```
+
+##Finally
+Looking at the data of the exploratory analysis we can reasonably count on a reliable dataset to work on. So next steps could be:
+
+1.find a larger sample in order to build the predictive algorithm;
+2.develop the predictive algorithm paying attention to performance and coding optimization;
+3.implement the final shiny application
